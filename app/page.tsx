@@ -1,9 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
-// We import our symbol utilities. 
-// Note: Ensure symbol-sdk doesn't break in client-side bundle.
-import { createProofTransaction, announceTransaction, getAccountProofs } from "../utils/symbol";
+import { useState } from "react";
 
 // Simple SHA256 helper using Web Crypto API
 async function sha256(file: File): Promise<string> {
@@ -13,19 +10,39 @@ async function sha256(file: File): Promise<string> {
   return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+type ProofApiOk = {
+  ok: true;
+  nodeUrl?: string;
+  recipientAddress: string;
+  announced: any;
+};
+
+type ProofApiNg = {
+  ok: false;
+  error: string;
+  details?: any;
+};
+
+type ProofsApiOk = {
+  ok: true;
+  nodeUrl: string;
+  address: string;
+  items: Array<{
+    hash: string;
+    height: string | number;
+    timestamp?: string | number;
+    recipientAddress?: string;
+    messageHex?: string;
+    messageText?: string;
+  }>;
+};
+
 export default function Home() {
-  const [privateKey, setPrivateKey] = useState("");
   const [status, setStatus] = useState("");
-  const [proofs, setProofs] = useState<any[]>([]);
+  const [proofs, setProofs] = useState<ProofsApiOk["items"]>([]);
   const [fileHash, setFileHash] = useState("");
   const [isUploading, setIsUploading] = useState(false);
-
-  // Load proofs if private key is present (assuming derivation of address)
-  // For simplicity MVP, we might need the Address derived from PK to fetch proofs.
-  // We'll update getAccountProofs to accept address.
-  // We need a way to get Address from PK in the UI or fetch logic.
-  // symbol-sdk has logic for this, we can add a helper in existing utils/symbol.ts
-  // For now, we won't auto-fetch on mount unless we have an address.
+  const [address, setAddress] = useState<string>("");
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -36,61 +53,61 @@ export default function Home() {
     }
   };
 
+  const loadProofs = async () => {
+    try {
+      const res = await fetch("/api/proofs");
+      const json = (await res.json()) as ProofsApiOk | ProofApiNg;
+
+      if (!res.ok || (json as any).ok === false) {
+        setStatus(`履歴取得エラー: ${(json as any)?.error ?? res.status}`);
+        return;
+      }
+
+      const ok = json as ProofsApiOk;
+      setAddress(ok.address); // ✅ APIが返す address を採用
+      setProofs(ok.items || []);
+      setStatus("履歴を更新しました。");
+    } catch (e: any) {
+      setStatus("履歴取得エラー: " + (e?.message ?? String(e)));
+    }
+  };
+
   const handleShave = async () => {
-    if (!privateKey || !fileHash) {
-      setStatus("秘密鍵を入力し、写真を選択してください。");
+    if (!fileHash) {
+      setStatus("写真を選択してください。");
       return;
     }
 
     setIsUploading(true);
-    setStatus("処理中...");
+    setStatus("証明中...");
 
     try {
-      // 1. Derive Address (Quick/Dirty: we need a helper, or we rely on the utility returning it?)
-      // We'll update utils/symbol.ts to export a "getAddress" helper or just pass PK to a "submit" function that handles it.
-      // Current createProofTransaction takes recipient.
-      // Let's modify logic: We need to know our own address to send to self.
+      const res = await fetch("/api/proof", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messageContent: fileHash }),
+      });
 
-      // Since I can't easily import "SymbolFacade" here without clutter, 
-      // I'll assume usage of a new helper helper `getPublicAccount` if needed, 
-      // or just trust the user to input address? No, user only inputs PK.
-      // I will update symbol.ts in the next turn to include a `getAddressFromPrivateKey` helper.
-      // For now, let's assume I can add it.
+      const json = (await res.json()) as ProofApiOk | ProofApiNg;
 
-      // WAIT: I can't update symbol.ts in this same turn easily if I didn't plan it.
-      // I'll write this page to expecting a `getAddressFromPrivateKey` from `../utils/symbol`.
-      // I will update `symbol.ts` immediately after this.
+      if (!res.ok || json.ok === false) {
+        setStatus(`APIエラー(${res.status}): ${(json as any)?.error ?? "unknown"}`);
+        return;
+      }
 
-      const { getAddressFromPrivateKey } = await import("../utils/symbol");
-      const address = getAddressFromPrivateKey(privateKey);
+      // ✅ 宛先（=記録先）を保存
+      setAddress(json.recipientAddress);
 
-      setStatus("トランザクション作成中...");
-      const { payload } = await createProofTransaction(privateKey, address, fileHash);
+      setStatus(`送信完了！ ${json.announced?.message ?? ""}`);
 
-      setStatus("トランザクション送信中...");
-      // Payload is already hex string
-      const res = await announceTransaction(payload);
-      setStatus("送信完了! " + JSON.stringify(res));
-
-      // Refresh proofs after a delay
+      // confirmed 反映まで少し待ってから取得
       setTimeout(() => {
-        loadProofs(address);
+        loadProofs();
       }, 5000);
-
     } catch (e: any) {
-      console.error(e);
-      setStatus("エラー: " + e.message);
+      setStatus("エラー: " + (e?.message ?? String(e)));
     } finally {
       setIsUploading(false);
-    }
-  };
-
-  const loadProofs = async (addr: string) => {
-    try {
-      const txs = await getAccountProofs(addr);
-      setProofs(txs || []);
-    } catch (e) {
-      console.error(e);
     }
   };
 
@@ -104,19 +121,20 @@ export default function Home() {
       </header>
 
       <main className="max-w-md mx-auto space-y-8">
-        {/* Wallet Section */}
+        {/* Info Section */}
         <div className="bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700">
-          <label className="block text-sm font-medium mb-2 text-gray-300">Symbol秘密鍵 (テストネット)</label>
-          <input
-            type="password"
-            value={privateKey}
-            onChange={(e) => setPrivateKey(e.target.value)}
-            className="w-full bg-gray-900 border border-gray-600 rounded p-2 text-sm text-white focus:ring-2 focus:ring-blue-500 outline-none"
-            placeholder="テストネットの秘密鍵を入力"
-          />
-          <p className="text-xs text-red-400 mt-1">
-            ※必ずテストネットの鍵を使用してください。
+          <div className="text-sm text-gray-300">
+            このアプリは <span className="font-semibold">サーバ側の秘密鍵（env）</span>で署名し、Symbolテストネットに記録します。
+          </div>
+          <p className="text-xs text-yellow-400 mt-2">
+            ※デモ用途のため、鍵は必ずテストネット用を使用してください。
           </p>
+
+          {address && (
+            <div className="mt-3 text-xs text-gray-400 break-all">
+              記録先アドレス: <span className="font-mono">{address}</span>
+            </div>
+          )}
         </div>
 
         {/* Action Section */}
@@ -153,11 +171,12 @@ export default function Home() {
 
             <button
               onClick={handleShave}
-              disabled={isUploading || !fileHash || !privateKey}
-              className={`w-full py-3 rounded-lg font-bold transition-all ${isUploading || !fileHash || !privateKey
-                ? "bg-gray-600 cursor-not-allowed"
-                : "bg-gradient-to-r from-blue-600 to-purple-600 hover:scale-105 active:scale-95 text-white shadow-lg shadow-blue-500/30"
-                }`}
+              disabled={isUploading || !fileHash}
+              className={`w-full py-3 rounded-lg font-bold transition-all ${
+                isUploading || !fileHash
+                  ? "bg-gray-600 cursor-not-allowed"
+                  : "bg-gradient-to-r from-blue-600 to-purple-600 hover:scale-105 active:scale-95 text-white shadow-lg shadow-blue-500/30"
+              }`}
             >
               {isUploading ? "証明中..." : "証明書を発行"}
             </button>
@@ -171,13 +190,7 @@ export default function Home() {
           <div className="flex justify-between items-center">
             <h2 className="text-xl font-semibold">証明履歴</h2>
             <button
-              onClick={async () => {
-                if (!privateKey) return;
-                // Need logic to get address from PK again, or store it
-                const { getAddressFromPrivateKey } = await import("../utils/symbol");
-                const addr = getAddressFromPrivateKey(privateKey);
-                loadProofs(addr);
-              }}
+              onClick={loadProofs}
               className="text-sm text-blue-400 hover:text-blue-300"
             >
               更新
@@ -188,30 +201,37 @@ export default function Home() {
             {proofs.length === 0 && (
               <div className="text-center text-gray-500 py-4">履歴がありません。</div>
             )}
-            {proofs.map((tx: any, i) => (
-              <div key={i} className="bg-gray-800 p-4 rounded-lg flex items-center justify-between border border-gray-700">
-                <div>
-                  <div className="text-sm font-bold text-white">
-                    証明 #{proofs.length - i}
+
+            {proofs.map((tx, i) => (
+              <div
+                key={tx.hash ?? i}
+                className="bg-gray-800 p-4 rounded-lg border border-gray-700"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-sm font-bold text-white">証明 #{proofs.length - i}</div>
+                    <div className="text-xs text-gray-400">ブロック高: {String(tx.height ?? "")}</div>
                   </div>
-                  <div className="text-xs text-gray-400">
-                    {/* Note: SDK returns UInt64 for height, need formatting */}
-                    ブロック高: {tx.meta.height}
+
+                  <div className="text-right">
+                    {/* ✅ hash は tx.hash */}
+                    <a
+                      href={`https://testnet.symbol.fyi/transactions/${tx.hash}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-xs text-blue-400 underline"
+                    >
+                      確認
+                    </a>
                   </div>
-                  {/* Message decoding needed if binary, but we sent string. 
-                       SDK raw fetch returns hex message usually 
-                   */}
                 </div>
-                <div className="text-right">
-                  <a
-                    href={`https://testnet.symbol.fyi/transactions/${tx.meta.hash}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-xs text-blue-400 underline"
-                  >
-                    確認
-                  </a>
-                </div>
+
+                {/* ✅ messageText（=写真ハッシュ）を表示 */}
+                {tx.messageText && (
+                  <div className="mt-2 text-xs font-mono text-gray-400 break-all">
+                    message: {tx.messageText}
+                  </div>
+                )}
               </div>
             ))}
           </div>
