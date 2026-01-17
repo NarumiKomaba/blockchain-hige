@@ -37,10 +37,87 @@ type ProofsApiOk = {
   }>;
 };
 
+type LocalProof = {
+  hash: string;
+  imageDataUrl: string;
+  storedAt: string;
+};
+
+type ProofItem = ProofsApiOk["items"][number] & {
+  localImage?: string;
+  localTimestamp?: string;
+};
+
+const DB_NAME = "shave-proof-db";
+const DB_VERSION = 1;
+const STORE_NAME = "proofs";
+const SYMBOL_EPOCH_MS = Date.UTC(2019, 10, 26, 0, 0, 0);
+
+function formatSymbolTimestamp(timestamp?: string | number) {
+  if (!timestamp) return "";
+  const raw = Number(timestamp);
+  if (Number.isNaN(raw)) return "";
+  const date = new Date(SYMBOL_EPOCH_MS + raw);
+  return date.toLocaleString();
+}
+
+function openProofDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME, { keyPath: "hash" });
+      }
+    };
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function saveLocalProof(entry: LocalProof) {
+  if (typeof indexedDB === "undefined") return;
+  const db = await openProofDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, "readwrite");
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.objectStore(STORE_NAME).put(entry);
+  });
+  db.close();
+}
+
+async function loadLocalProofs(hashes: string[]) {
+  const results: Record<string, LocalProof> = {};
+  if (typeof indexedDB === "undefined" || hashes.length === 0) return results;
+  const db = await openProofDb();
+  await Promise.all(
+    hashes.map(
+      (hash) =>
+        new Promise<void>((resolve) => {
+          const tx = db.transaction(STORE_NAME, "readonly");
+          const request = tx.objectStore(STORE_NAME).get(hash);
+          request.onsuccess = () => {
+            if (request.result) {
+              results[hash] = request.result as LocalProof;
+            }
+            resolve();
+          };
+          request.onerror = () => resolve();
+        })
+    )
+  );
+  db.close();
+  return results;
+}
+
 export default function Home() {
   const [status, setStatus] = useState("");
-  const [proofs, setProofs] = useState<ProofsApiOk["items"]>([]);
+  const [proofs, setProofs] = useState<ProofItem[]>([]);
   const [fileHash, setFileHash] = useState("");
+  const [imagePreview, setImagePreview] = useState<string>("");
   const [isUploading, setIsUploading] = useState(false);
   const [address, setAddress] = useState<string>("");
 
@@ -49,6 +126,13 @@ export default function Home() {
       const file = e.target.files[0];
       const hash = await sha256(file);
       setFileHash(hash);
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(file);
+      });
+      setImagePreview(dataUrl);
       setStatus("ハッシュ化完了: " + hash.substring(0, 10) + "...");
     }
   };
@@ -65,7 +149,20 @@ export default function Home() {
 
       const ok = json as ProofsApiOk;
       setAddress(ok.address); // ✅ APIが返す address を採用
-      setProofs(ok.items || []);
+      const items = ok.items || [];
+      const hashes = items
+        .map((item) => item.messageText)
+        .filter((value): value is string => Boolean(value));
+      const localMap = await loadLocalProofs(hashes);
+      const merged = items.map((item) => {
+        const local = item.messageText ? localMap[item.messageText] : undefined;
+        return {
+          ...item,
+          localImage: local?.imageDataUrl,
+          localTimestamp: local?.storedAt,
+        };
+      });
+      setProofs(merged);
       setStatus("履歴を更新しました。");
     } catch (e: any) {
       setStatus("履歴取得エラー: " + (e?.message ?? String(e)));
@@ -75,6 +172,10 @@ export default function Home() {
   const handleShave = async () => {
     if (!fileHash) {
       setStatus("写真を選択してください。");
+      return;
+    }
+    if (!imagePreview) {
+      setStatus("写真の読み込みに失敗しました。再度お試しください。");
       return;
     }
 
@@ -94,6 +195,12 @@ export default function Home() {
         setStatus(`APIエラー(${res.status}): ${(json as any)?.error ?? "unknown"}`);
         return;
       }
+
+      await saveLocalProof({
+        hash: fileHash,
+        imageDataUrl: imagePreview,
+        storedAt: new Date().toISOString(),
+      });
 
       // ✅ 宛先（=記録先）を保存
       setAddress(json.recipientAddress);
@@ -211,6 +318,16 @@ export default function Home() {
                   <div>
                     <div className="text-sm font-bold text-white">証明 #{proofs.length - i}</div>
                     <div className="text-xs text-gray-400">ブロック高: {String(tx.height ?? "")}</div>
+                    {tx.timestamp && (
+                      <div className="text-xs text-gray-400">
+                        日時: {formatSymbolTimestamp(tx.timestamp) || "不明"}
+                      </div>
+                    )}
+                    {tx.localTimestamp && (
+                      <div className="text-xs text-gray-500">
+                        端末保存: {new Date(tx.localTimestamp).toLocaleString()}
+                      </div>
+                    )}
                   </div>
 
                   <div className="text-right">
@@ -226,10 +343,23 @@ export default function Home() {
                   </div>
                 </div>
 
+                {tx.localImage && (
+                  <img
+                    src={tx.localImage}
+                    alt="証明写真"
+                    className="mt-3 w-full rounded-md border border-gray-700"
+                  />
+                )}
+
                 {/* ✅ messageText（=写真ハッシュ）を表示 */}
                 {tx.messageText && (
                   <div className="mt-2 text-xs font-mono text-gray-400 break-all">
-                    message: {tx.messageText}
+                    写真ハッシュ: {tx.messageText}
+                  </div>
+                )}
+                {tx.hash && (
+                  <div className="mt-1 text-xs font-mono text-gray-500 break-all">
+                    TXハッシュ: {tx.hash}
                   </div>
                 )}
               </div>
