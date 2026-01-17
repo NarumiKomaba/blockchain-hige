@@ -81,7 +81,15 @@ export async function announceTransaction(payload: string) {
         body: JSON.stringify({ payload }),
     });
 
-    return response.json();
+    const contentType = response.headers.get('content-type') ?? '';
+    const text = await response.text();
+    if (text && contentType.includes('application/json')) {
+        return JSON.parse(text);
+    }
+    if (text) {
+        return { message: text };
+    }
+    return { status: response.status };
 }
 
 /**
