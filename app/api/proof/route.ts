@@ -22,17 +22,27 @@ export async function POST(req: Request) {
     }
 
     // scripts/proof.cjs を実行して payload を生成
-    const { stdout } = await execFileAsync(
-      process.execPath,
-      ["scripts/proof.cjs", messageContent, recipientAddress],
-      { env: { ...process.env } }
-    );
-
     let proofResult: { recipientAddress: string; payload: string };
     try {
+      const { stdout } = await execFileAsync(
+        process.execPath,
+        ["scripts/proof.cjs", messageContent, recipientAddress],
+        { env: { ...process.env }, encoding: "utf8" }
+      );
       proofResult = JSON.parse(stdout);
-    } catch {
-      throw new Error(`Invalid JSON from scripts/proof.cjs: ${stdout}`);
+    } catch (e: any) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "proof generation failed",
+          details: {
+            message: e?.message,
+            stdout: e?.stdout,
+            stderr: e?.stderr,
+          },
+        },
+        { status: 500 }
+      );
     }
 
     const { payload, recipientAddress: finalRecipientAddress } = proofResult;

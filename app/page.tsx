@@ -199,7 +199,10 @@ export default function Home() {
       const json = (await res.json()) as ProofApiOk | ProofApiNg;
 
       if (!res.ok || json.ok === false) {
-        setStatus(`APIエラー(${res.status}): ${(json as any)?.error ?? "unknown"}`);
+        const errorMessage = (json as any)?.error ?? "unknown";
+        const details = (json as any)?.details ?? (json as any)?.message;
+        const detailText = details ? ` (${JSON.stringify(details)})` : "";
+        setStatus(`APIエラー(${res.status}): ${errorMessage}${detailText}`);
         return;
       }
 
