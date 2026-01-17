@@ -53,11 +53,16 @@ const DB_VERSION = 1;
 const STORE_NAME = "proofs";
 const SYMBOL_EPOCH_MS = Date.UTC(2019, 10, 26, 0, 0, 0);
 
+function normalizeMessageText(value?: string) {
+  if (!value) return "";
+  return value.replace(/\u0000/g, "").trim();
+}
+
 function formatSymbolTimestamp(timestamp?: string | number) {
   if (!timestamp) return "";
   const raw = Number(timestamp);
   if (Number.isNaN(raw)) return "";
-  const date = new Date(SYMBOL_EPOCH_MS + raw);
+  const date = raw > 1_000_000_000_000 ? new Date(raw) : new Date(SYMBOL_EPOCH_MS + raw);
   return date.toLocaleString();
 }
 
@@ -151,15 +156,17 @@ export default function Home() {
       setAddress(ok.address); // ✅ APIが返す address を採用
       const items = ok.items || [];
       const hashes = items
-        .map((item) => item.messageText)
+        .map((item) => normalizeMessageText(item.messageText))
         .filter((value): value is string => Boolean(value));
       const localMap = await loadLocalProofs(hashes);
       const merged = items.map((item) => {
-        const local = item.messageText ? localMap[item.messageText] : undefined;
+        const normalizedHash = normalizeMessageText(item.messageText);
+        const local = normalizedHash ? localMap[normalizedHash] : undefined;
         return {
           ...item,
           localImage: local?.imageDataUrl,
           localTimestamp: local?.storedAt,
+          messageText: normalizedHash || item.messageText,
         };
       });
       setProofs(merged);
@@ -228,22 +235,6 @@ export default function Home() {
       </header>
 
       <main className="max-w-md mx-auto space-y-8">
-        {/* Info Section */}
-        <div className="bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700">
-          <div className="text-sm text-gray-300">
-            このアプリは <span className="font-semibold">サーバ側の秘密鍵（env）</span>で署名し、Symbolテストネットに記録します。
-          </div>
-          <p className="text-xs text-yellow-400 mt-2">
-            ※デモ用途のため、鍵は必ずテストネット用を使用してください。
-          </p>
-
-          {address && (
-            <div className="mt-3 text-xs text-gray-400 break-all">
-              記録先アドレス: <span className="font-mono">{address}</span>
-            </div>
-          )}
-        </div>
-
         {/* Action Section */}
         <div className="bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700 relative overflow-hidden">
           <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-purple-500"></div>
@@ -318,16 +309,12 @@ export default function Home() {
                   <div>
                     <div className="text-sm font-bold text-white">証明 #{proofs.length - i}</div>
                     <div className="text-xs text-gray-400">ブロック高: {String(tx.height ?? "")}</div>
-                    {tx.timestamp && (
-                      <div className="text-xs text-gray-400">
-                        日時: {formatSymbolTimestamp(tx.timestamp) || "不明"}
-                      </div>
-                    )}
-                    {tx.localTimestamp && (
-                      <div className="text-xs text-gray-500">
-                        端末保存: {new Date(tx.localTimestamp).toLocaleString()}
-                      </div>
-                    )}
+                    <div className="text-xs text-gray-400">
+                      日時:{" "}
+                      {tx.localTimestamp
+                        ? new Date(tx.localTimestamp).toLocaleString()
+                        : formatSymbolTimestamp(tx.timestamp) || "不明"}
+                    </div>
                   </div>
 
                   <div className="text-right">
