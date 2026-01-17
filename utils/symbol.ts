@@ -1,4 +1,5 @@
 import { SymbolFacade, KeyPair } from 'symbol-sdk/symbol';
+import { NODE_URL } from './symbolConfig';
 
 // Simple hex to uint8 helper to avoid importing from SDK root
 function hexToUint8(hex: string): Uint8Array {
@@ -9,9 +10,6 @@ function hexToUint8(hex: string): Uint8Array {
     }
     return bytes;
 }
-
-// NODE URL
-export const NODE_URL = 'https://sym-test.opening-line.jp:3001';
 
 /**
  * Creates a Transfer Transaction with a message (Proof).
@@ -67,7 +65,7 @@ export async function createProofTransaction(
  * @param payload - Hex string of the signed transaction payload.
  */
 export async function announceTransaction(payload: string) {
-    const url = `${NODE_URL}/transactions`;
+    const url = '/api/transactions';
     const response = await fetch(url, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
