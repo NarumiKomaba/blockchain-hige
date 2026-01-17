@@ -1,5 +1,13 @@
-import { SymbolFacade, KeyPair } from 'symbol-sdk/symbol';
 import { NODE_URL } from './symbolConfig';
+
+let cachedSymbolSdk: typeof import('symbol-sdk/symbol') | null = null;
+
+async function loadSymbolSdk() {
+    if (!cachedSymbolSdk) {
+        cachedSymbolSdk = await import('symbol-sdk/symbol');
+    }
+    return cachedSymbolSdk;
+}
 
 // Simple hex to uint8 helper to avoid importing from SDK root
 function hexToUint8(hex: string): Uint8Array {
@@ -22,6 +30,7 @@ export async function createProofTransaction(
     recipientAddress: string,
     messageContent: string
 ) {
+    const { SymbolFacade, KeyPair } = await loadSymbolSdk();
     const facade = new SymbolFacade('testnet');
     // Use manual key pair creation to avoid importing PrivateKey causing bitcore-lib conflict
     const keyBytes = hexToUint8(privateKey);
@@ -92,7 +101,8 @@ export async function getAccountProofs(address: string) {
  * Derives address from private key.
  * @param privateKey 
  */
-export function getAddressFromPrivateKey(privateKey: string): string {
+export async function getAddressFromPrivateKey(privateKey: string): Promise<string> {
+    const { SymbolFacade, KeyPair } = await loadSymbolSdk();
     const facade = new SymbolFacade('testnet');
     const keyBytes = hexToUint8(privateKey);
     const keyPair = new KeyPair({ bytes: keyBytes } as any);

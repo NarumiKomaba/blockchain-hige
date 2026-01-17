@@ -62,7 +62,7 @@ export default function Home() {
       // I will update `symbol.ts` immediately after this.
 
       const { getAddressFromPrivateKey } = await import("../utils/symbol");
-      const address = getAddressFromPrivateKey(privateKey);
+      const address = await getAddressFromPrivateKey(privateKey);
 
       setStatus("トランザクション作成中...");
       const { payload } = await createProofTransaction(privateKey, address, fileHash);
@@ -175,7 +175,7 @@ export default function Home() {
                 if (!privateKey) return;
                 // Need logic to get address from PK again, or store it
                 const { getAddressFromPrivateKey } = await import("../utils/symbol");
-                const addr = getAddressFromPrivateKey(privateKey);
+                const addr = await getAddressFromPrivateKey(privateKey);
                 loadProofs(addr);
               }}
               className="text-sm text-blue-400 hover:text-blue-300"
