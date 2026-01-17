@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 // We import our symbol utilities. 
 // Note: Ensure symbol-sdk doesn't break in client-side bundle.
 import { createProofTransaction, announceTransaction, getAccountProofs } from "../utils/symbol";
+import type { DebugLogEntry } from "../utils/symbol";
 
 // Simple SHA256 helper using Web Crypto API
 async function sha256(file: File): Promise<string> {
@@ -19,6 +20,7 @@ export default function Home() {
   const [proofs, setProofs] = useState<any[]>([]);
   const [fileHash, setFileHash] = useState("");
   const [isUploading, setIsUploading] = useState(false);
+  const [debugLogs, setDebugLogs] = useState<(DebugLogEntry & { time: string })[]>([]);
 
   // Load proofs if private key is present (assuming derivation of address)
   // For simplicity MVP, we might need the Address derived from PK to fetch proofs.
@@ -44,6 +46,11 @@ export default function Home() {
 
     setIsUploading(true);
     setStatus("処理中...");
+    setDebugLogs([]);
+
+    const addDebugLog = (entry: DebugLogEntry) => {
+      setDebugLogs((prev) => [...prev, { ...entry, time: new Date().toISOString() }]);
+    };
 
     try {
       // 1. Derive Address (Quick/Dirty: we need a helper, or we rely on the utility returning it?)
@@ -65,11 +72,11 @@ export default function Home() {
       const address = getAddressFromPrivateKey(privateKey);
 
       setStatus("トランザクション作成中...");
-      const { payload } = await createProofTransaction(privateKey, address, fileHash);
+      const { payload } = await createProofTransaction(privateKey, address, fileHash, addDebugLog);
 
       setStatus("トランザクション送信中...");
       // Payload is already hex string
-      const res = await announceTransaction(payload);
+      const res = await announceTransaction(payload, addDebugLog);
       setStatus("送信完了! " + JSON.stringify(res));
 
       // Refresh proofs after a delay
@@ -79,6 +86,10 @@ export default function Home() {
 
     } catch (e: any) {
       console.error(e);
+      addDebugLog({
+        stage: "handleShave:error",
+        error: e?.message ?? String(e)
+      });
       setStatus("エラー: " + e.message);
     } finally {
       setIsUploading(false);
@@ -87,7 +98,9 @@ export default function Home() {
 
   const loadProofs = async (addr: string) => {
     try {
-      const txs = await getAccountProofs(addr);
+      const txs = await getAccountProofs(addr, (entry) =>
+        setDebugLogs((prev) => [...prev, { ...entry, time: new Date().toISOString() }])
+      );
       setProofs(txs || []);
     } catch (e) {
       console.error(e);
@@ -164,6 +177,51 @@ export default function Home() {
 
             <div className="text-sm text-yellow-400 min-h-[20px]">{status}</div>
           </div>
+        </div>
+
+        <div className="bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-semibold">通信ログ</h2>
+            <button
+              type="button"
+              onClick={() => setDebugLogs([])}
+              className="text-xs text-gray-400 hover:text-gray-200"
+            >
+              クリア
+            </button>
+          </div>
+          {debugLogs.length === 0 ? (
+            <div className="text-xs text-gray-500">ログはまだありません。</div>
+          ) : (
+            <div className="space-y-3 text-xs text-gray-300">
+              {debugLogs.map((log, index) => (
+                <div key={`${log.stage}-${index}`} className="border border-gray-700 rounded-lg p-3 bg-gray-900/60">
+                  <div className="flex justify-between text-gray-400 mb-2">
+                    <span>{log.stage}</span>
+                    <span>{new Date(log.time).toLocaleString()}</span>
+                  </div>
+                  {log.request && (
+                    <div className="mb-2">
+                      <div className="text-gray-500 mb-1">送信内容</div>
+                      <pre className="whitespace-pre-wrap break-all">{JSON.stringify(log.request, null, 2)}</pre>
+                    </div>
+                  )}
+                  {log.response && (
+                    <div className="mb-2">
+                      <div className="text-gray-500 mb-1">受信内容</div>
+                      <pre className="whitespace-pre-wrap break-all">{JSON.stringify(log.response, null, 2)}</pre>
+                    </div>
+                  )}
+                  {log.error && (
+                    <div>
+                      <div className="text-red-400 mb-1">エラー</div>
+                      <pre className="whitespace-pre-wrap break-all">{log.error}</pre>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* History Section */}
