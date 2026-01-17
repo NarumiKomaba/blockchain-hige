@@ -1,5 +1,14 @@
 import { SymbolFacade, KeyPair } from 'symbol-sdk/symbol';
 
+export type DebugLogEntry = {
+    stage: string;
+    request?: Record<string, unknown>;
+    response?: Record<string, unknown>;
+    error?: string;
+};
+
+type DebugLogger = (entry: DebugLogEntry) => void;
+
 // Simple hex to uint8 helper to avoid importing from SDK root
 function hexToUint8(hex: string): Uint8Array {
     if (hex.length % 2 !== 0) throw new Error('Invalid hex string');
@@ -22,7 +31,8 @@ export const NODE_URL = 'https://sym-test.opening-line.jp:3001';
 export async function createProofTransaction(
     privateKey: string,
     recipientAddress: string,
-    messageContent: string
+    messageContent: string,
+    logger?: DebugLogger
 ) {
     const facade = new SymbolFacade('testnet');
     // Use manual key pair creation to avoid importing PrivateKey causing bitcore-lib conflict
@@ -55,6 +65,18 @@ export async function createProofTransaction(
     const jsonObj = JSON.parse(jsonString);
     const payload = jsonObj.payload; // Hex string
 
+    logger?.({
+        stage: 'createProofTransaction',
+        request: {
+            recipientAddress: cleanAddress,
+            messageLength: messageContent.length
+        },
+        response: {
+            signerPublicKey: keyPair.publicKey.toString(),
+            payloadLength: payload.length
+        }
+    });
+
     return {
         transaction,
         signature,
@@ -66,28 +88,81 @@ export async function createProofTransaction(
  * Announces a transaction to the network.
  * @param payload - Hex string of the signed transaction payload.
  */
-export async function announceTransaction(payload: string) {
+export async function announceTransaction(payload: string, logger?: DebugLogger) {
     const url = `${NODE_URL}/transactions`;
+    const requestBody = { payload };
+    logger?.({
+        stage: 'announceTransaction:request',
+        request: {
+            url,
+            method: 'PUT',
+            body: requestBody
+        }
+    });
+
     const response = await fetch(url, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ payload }),
+        body: JSON.stringify(requestBody),
     });
 
-    return response.json();
+    const responseText = await response.text();
+    let responseJson: unknown;
+    try {
+        responseJson = JSON.parse(responseText);
+    } catch (error) {
+        responseJson = undefined;
+    }
+
+    logger?.({
+        stage: 'announceTransaction:response',
+        response: {
+            status: response.status,
+            ok: response.ok,
+            bodyText: responseText,
+            json: responseJson
+        }
+    });
+
+    return responseJson ?? responseText;
 }
 
 /**
  * Fetch transactions for an account to show history.
  * @param address - Raw address string.
  */
-export async function getAccountProofs(address: string) {
+export async function getAccountProofs(address: string, logger?: DebugLogger) {
     // If address has dashes, remove them? API handles both usually but clean is safer
     const cleanAddress = address.replace(/-/g, '');
     const url = `${NODE_URL}/transactions/confirmed?address=${cleanAddress}&order=desc&type=16724`;
+    logger?.({
+        stage: 'getAccountProofs:request',
+        request: {
+            url,
+            method: 'GET'
+        }
+    });
+
     const res = await fetch(url);
-    const data = await res.json();
-    return data.data;
+    const responseText = await res.text();
+    let responseJson: any;
+    try {
+        responseJson = JSON.parse(responseText);
+    } catch (error) {
+        responseJson = undefined;
+    }
+
+    logger?.({
+        stage: 'getAccountProofs:response',
+        response: {
+            status: res.status,
+            ok: res.ok,
+            bodyText: responseText,
+            json: responseJson
+        }
+    });
+
+    return responseJson?.data;
 }
 
 /**
