@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { getPhoto, putPhoto } from "@/lib/photoStore";
 
 // Simple SHA256 helper using Web Crypto API
 async function sha256(file: File): Promise<string> {
@@ -8,6 +9,16 @@ async function sha256(file: File): Promise<string> {
   const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * messageText から 64桁 hex を抜き出す
+ * - 64hex が複数ある場合は最初の1つ
+ */
+function extractPhotoHash(messageText?: string): string | null {
+  if (!messageText) return null;
+  const m = messageText.match(/[0-9a-fA-F]{64}/);
+  return m ? m[0].toLowerCase() : null;
 }
 
 type ProofApiOk = {
@@ -27,13 +38,14 @@ type ProofsApiOk = {
   ok: true;
   nodeUrl: string;
   address: string;
+  count?: number;
   items: Array<{
-    hash: string;
+    hash: string; // tx hash
     height: string | number;
     timestamp?: string | number;
     recipientAddress?: string;
     messageHex?: string;
-    messageText?: string;
+    messageText?: string; // chain message (contains photo hash)
   }>;
 };
 
@@ -44,29 +56,90 @@ export default function Home() {
   const [isUploading, setIsUploading] = useState(false);
   const [address, setAddress] = useState<string>("");
 
+  // 撮影直後のプレビュー用URL
+  const [previewUrl, setPreviewUrl] = useState<string>("");
+
+  // 履歴カードに表示する写真URL（tx.hash → objectURL）
+  const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
+
+  // objectURL 破棄用
+  const previewUrlRef = useRef<string>("");
+  const photoUrlsRef = useRef<Record<string, string>>({});
+
+  useEffect(() => {
+    previewUrlRef.current = previewUrl;
+  }, [previewUrl]);
+
+  useEffect(() => {
+    photoUrlsRef.current = photoUrls;
+  }, [photoUrls]);
+
+  useEffect(() => {
+    return () => {
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+      for (const url of Object.values(photoUrlsRef.current)) URL.revokeObjectURL(url);
+    };
+  }, []);
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
+    try {
+      if (!e.target.files || !e.target.files[0]) return;
+
       const file = e.target.files[0];
+
+      // 1) SHA256
       const hash = await sha256(file);
       setFileHash(hash);
-      setStatus("ハッシュ化完了: " + hash.substring(0, 10) + "...");
+
+      // 2) IndexedDBへ保存（hashをキー）
+      await putPhoto({
+        hash,
+        createdAt: Date.now(),
+        blob: file, // FileはBlobとして保存OK
+      });
+
+      // 3) プレビュー表示
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+      const url = URL.createObjectURL(file);
+      setPreviewUrl(url);
+
+      setStatus("ハッシュ化＆端末保存完了: " + hash.substring(0, 10) + "...");
+    } catch (e: any) {
+      setStatus("ファイル処理エラー: " + (e?.message ?? String(e)));
     }
   };
 
   const loadProofs = async () => {
     try {
-      const res = await fetch("/api/proofs");
+      const res = await fetch("/api/proofs", { cache: "no-store" });
       const json = (await res.json()) as ProofsApiOk | ProofApiNg;
 
-      if (!res.ok || (json as any).ok === false) {
+      if (!res.ok || (json as any)?.ok === false) {
         setStatus(`履歴取得エラー: ${(json as any)?.error ?? res.status}`);
         return;
       }
 
       const ok = json as ProofsApiOk;
-      setAddress(ok.address); // ✅ APIが返す address を採用
+      setAddress(ok.address);
       setProofs(ok.items || []);
       setStatus("履歴を更新しました。");
+
+      // 既存の履歴写真URLを解放
+      for (const url of Object.values(photoUrlsRef.current)) URL.revokeObjectURL(url);
+
+      // 履歴から写真を引き当ててURL生成
+      const nextPhotoUrls: Record<string, string> = {};
+      for (const tx of ok.items || []) {
+        const photoHash = extractPhotoHash(tx.messageText);
+        if (!photoHash) continue;
+
+        const rec = await getPhoto(photoHash);
+        if (!rec?.blob) continue;
+
+        nextPhotoUrls[tx.hash] = URL.createObjectURL(rec.blob);
+      }
+
+      setPhotoUrls(nextPhotoUrls);
     } catch (e: any) {
       setStatus("履歴取得エラー: " + (e?.message ?? String(e)));
     }
@@ -90,15 +163,17 @@ export default function Home() {
 
       const json = (await res.json()) as ProofApiOk | ProofApiNg;
 
-      if (!res.ok || json.ok === false) {
+      if (!res.ok || (json as any)?.ok === false) {
         setStatus(`APIエラー(${res.status}): ${(json as any)?.error ?? "unknown"}`);
         return;
       }
 
-      // ✅ 宛先（=記録先）を保存
-      setAddress(json.recipientAddress);
+      const ok = json as ProofApiOk;
 
-      setStatus(`送信完了！ ${json.announced?.message ?? ""}`);
+      // ✅ 宛先（=記録先）を保存
+      setAddress(ok.recipientAddress);
+
+      setStatus(`送信完了！ ${ok.announced?.message ?? ""}`);
 
       // confirmed 反映まで少し待ってから取得
       setTimeout(() => {
@@ -121,22 +196,6 @@ export default function Home() {
       </header>
 
       <main className="max-w-md mx-auto space-y-8">
-        {/* Info Section */}
-        <div className="bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700">
-          <div className="text-sm text-gray-300">
-            このアプリは <span className="font-semibold">サーバ側の秘密鍵（env）</span>で署名し、Symbolテストネットに記録します。
-          </div>
-          <p className="text-xs text-yellow-400 mt-2">
-            ※デモ用途のため、鍵は必ずテストネット用を使用してください。
-          </p>
-
-          {address && (
-            <div className="mt-3 text-xs text-gray-400 break-all">
-              記録先アドレス: <span className="font-mono">{address}</span>
-            </div>
-          )}
-        </div>
-
         {/* Action Section */}
         <div className="bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700 relative overflow-hidden">
           <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-purple-500"></div>
@@ -155,17 +214,20 @@ export default function Home() {
                 htmlFor="file-upload"
                 className="cursor-pointer inline-flex items-center justify-center w-32 h-32 rounded-full bg-gray-700 hover:bg-gray-600 border-2 border-dashed border-gray-500 transition-all group-hover:border-blue-400"
               >
-                {fileHash ? (
-                  <span className="text-4xl">📸</span>
-                ) : (
-                  <span className="text-gray-400 text-sm">タップして撮影</span>
-                )}
+                {fileHash ? <span className="text-4xl">📸</span> : <span className="text-gray-400 text-sm">タップして撮影</span>}
               </label>
             </div>
 
             {fileHash && (
               <div className="text-xs font-mono text-gray-400 break-all">
                 ハッシュ値: {fileHash}
+              </div>
+            )}
+
+            {/* 発行セクションのプレビュー表示 */}
+            {previewUrl && (
+              <div className="pt-2">
+                <img src={previewUrl} alt="preview" className="w-full rounded-lg border border-gray-700" />
               </div>
             )}
 
@@ -189,51 +251,61 @@ export default function Home() {
         <div className="space-y-4">
           <div className="flex justify-between items-center">
             <h2 className="text-xl font-semibold">証明履歴</h2>
-            <button
-              onClick={loadProofs}
-              className="text-sm text-blue-400 hover:text-blue-300"
-            >
+            <button onClick={loadProofs} className="text-sm text-blue-400 hover:text-blue-300">
               更新
             </button>
           </div>
 
           <div className="space-y-3">
-            {proofs.length === 0 && (
-              <div className="text-center text-gray-500 py-4">履歴がありません。</div>
-            )}
+            {proofs.length === 0 && <div className="text-center text-gray-500 py-4">履歴がありません。</div>}
 
-            {proofs.map((tx, i) => (
-              <div
-                key={tx.hash ?? i}
-                className="bg-gray-800 p-4 rounded-lg border border-gray-700"
-              >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-sm font-bold text-white">証明 #{proofs.length - i}</div>
-                    <div className="text-xs text-gray-400">ブロック高: {String(tx.height ?? "")}</div>
+            {proofs.map((tx, i) => {
+              const photoHash = extractPhotoHash(tx.messageText);
+              const localPhotoUrl = photoUrls[tx.hash];
+
+              return (
+                <div key={tx.hash ?? i} className="bg-gray-800 p-4 rounded-lg border border-gray-700">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-sm font-bold text-white">証明 #{proofs.length - i}</div>
+                      <div className="text-xs text-gray-400">ブロック高: {String(tx.height ?? "")}</div>
+                    </div>
+
+                    <div className="text-right">
+                      <a
+                        href={`https://testnet.symbol.fyi/transactions/${tx.hash}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs text-blue-400 underline"
+                      >
+                        確認
+                      </a>
+                    </div>
                   </div>
 
-                  <div className="text-right">
-                    {/* ✅ hash は tx.hash */}
-                    <a
-                      href={`https://testnet.symbol.fyi/transactions/${tx.hash}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-xs text-blue-400 underline"
-                    >
-                      確認
-                    </a>
-                  </div>
+                  {/* messageText（=写真ハッシュ） */}
+                  {tx.messageText && (
+                    <div className="mt-2 text-xs font-mono text-gray-400 break-all">
+                      message: {tx.messageText}
+                    </div>
+                  )}
+
+                  {/* local photo */}
+                  {photoHash && localPhotoUrl ? (
+                    <div className="mt-3">
+                      <img src={localPhotoUrl} alt="saved photo" className="w-full rounded-lg border border-gray-700" />
+                      <div className="mt-1 text-[11px] text-gray-500">
+                        ※この端末の IndexedDB に保存されている写真を表示（チェーンにはハッシュのみ）
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-3 text-xs text-gray-500">
+                      この端末に写真が保存されていません（別端末 / 過去の証明 / DBに該当hash無しの可能性）。
+                    </div>
+                  )}
                 </div>
-
-                {/* ✅ messageText（=写真ハッシュ）を表示 */}
-                {tx.messageText && (
-                  <div className="mt-2 text-xs font-mono text-gray-400 break-all">
-                    message: {tx.messageText}
-                  </div>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </main>
