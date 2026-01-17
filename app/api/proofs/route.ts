@@ -11,13 +11,22 @@ const NODE_URL = process.env.SYMBOL_NODE_URL || "https://sym-test-01.opening-lin
 // hex文字列 -> UTF-8 文字列（Symbolのmessage.payloadは16進になることが多い）
 function hexToUtf8(hex: string): string {
   if (!hex) return "";
-  const clean = hex.startsWith("0x") ? hex.slice(2) : hex;
-  if (clean.length % 2 !== 0) return "";
-  const bytes = new Uint8Array(clean.length / 2);
-  for (let i = 0; i < clean.length; i += 2) {
-    bytes[i / 2] = parseInt(clean.substring(i, i + 2), 16);
+  const cleaned = hex.startsWith("0x") ? hex.slice(2) : hex;
+  const tryDecode = (value: string) => {
+    if (!value || value.length % 2 !== 0) return "";
+    const bytes = new Uint8Array(value.length / 2);
+    for (let i = 0; i < value.length; i += 2) {
+      bytes[i / 2] = parseInt(value.substring(i, i + 2), 16);
+    }
+    return new TextDecoder().decode(bytes);
+  };
+
+  const decoded = tryDecode(cleaned);
+  if (decoded) return decoded;
+  if (cleaned.startsWith("00")) {
+    return tryDecode(cleaned.slice(2));
   }
-  return new TextDecoder().decode(bytes);
+  return "";
 }
 
 async function getDefaultAddressFromEnvPK(): Promise<string> {
