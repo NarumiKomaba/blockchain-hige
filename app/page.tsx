@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 // Simple SHA256 helper using Web Crypto API
 async function sha256(file: File): Promise<string> {
@@ -31,6 +31,7 @@ type ProofsApiOk = {
     hash: string;
     height: string | number;
     timestamp?: string | number;
+    registeredAt?: string | null;
     recipientAddress?: string;
     messageHex?: string;
     messageText?: string;
@@ -53,7 +54,7 @@ export default function Home() {
     }
   };
 
-  const loadProofs = async () => {
+  const loadProofs = async (shouldUpdateStatus = true) => {
     try {
       const res = await fetch("/api/proofs");
       const json = (await res.json()) as ProofsApiOk | ProofApiNg;
@@ -66,10 +67,31 @@ export default function Home() {
       const ok = json as ProofsApiOk;
       setAddress(ok.address); // ✅ APIが返す address を採用
       setProofs(ok.items || []);
-      setStatus("履歴を更新しました。");
+      if (shouldUpdateStatus) {
+        setStatus("履歴を更新しました。");
+      }
     } catch (e: any) {
       setStatus("履歴取得エラー: " + (e?.message ?? String(e)));
     }
+  };
+
+  useEffect(() => {
+    loadProofs(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const formatRegisteredAt = (registeredAt?: string | null) => {
+    if (!registeredAt) return "";
+    const date = new Date(registeredAt);
+    if (Number.isNaN(date.getTime())) return "";
+    return date.toLocaleString("ja-JP", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
   };
 
   const handleShave = async () => {
@@ -211,6 +233,9 @@ export default function Home() {
                   <div>
                     <div className="text-sm font-bold text-white">証明 #{proofs.length - i}</div>
                     <div className="text-xs text-gray-400">ブロック高: {String(tx.height ?? "")}</div>
+                    <div className="text-xs text-gray-400">
+                      登録日時: {formatRegisteredAt(tx.registeredAt) || "-"}
+                    </div>
                   </div>
 
                   <div className="text-right">

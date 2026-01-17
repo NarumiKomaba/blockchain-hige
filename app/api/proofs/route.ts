@@ -8,6 +8,19 @@ export const runtime = "nodejs";
 const execFileAsync = promisify(execFile);
 const NODE_URL = process.env.SYMBOL_NODE_URL || "https://sym-test-01.opening-line.jp:3001";
 
+function parseEpochAdjustmentSeconds(epochAdjustment: unknown): number | null {
+  if (typeof epochAdjustment === "number") {
+    return epochAdjustment;
+  }
+  if (typeof epochAdjustment === "string") {
+    const match = epochAdjustment.match(/\d+/);
+    if (match) {
+      return Number(match[0]);
+    }
+  }
+  return null;
+}
+
 // hex文字列 -> UTF-8 文字列（Symbolのmessage.payloadは16進になることが多い）
 function hexToUtf8(hex: string): string {
   if (!hex) return "";
@@ -38,6 +51,12 @@ export async function GET(req: Request) {
     const address = addressParam || (await getDefaultAddressFromEnvPK());
     const cleanAddress = address.replace(/-/g, "");
 
+    const networkRes = await fetch(`${NODE_URL}/network/properties`);
+    const networkBody = networkRes.ok ? await networkRes.json() : null;
+    const epochAdjustmentSeconds = parseEpochAdjustmentSeconds(
+      networkBody?.network?.epochAdjustment
+    );
+
     // transfer tx type = 16724 (0x4154)
     const url = `${NODE_URL}/transactions/confirmed?address=${cleanAddress}&order=desc&type=16724&pageSize=20`;
     const res = await fetch(url);
@@ -63,11 +82,17 @@ export async function GET(req: Request) {
       // message payload は hex のことが多い（plain message）
       const payloadHex = tx?.message?.payload || "";
       const decodedMessage = hexToUtf8(payloadHex);
+      const timestamp = meta?.timestamp;
+      const registeredAt =
+        epochAdjustmentSeconds !== null && timestamp !== undefined
+          ? new Date(epochAdjustmentSeconds * 1000 + Number(timestamp)).toISOString()
+          : null;
 
       return {
         hash: meta?.hash,
         height: meta?.height,
-        timestamp: meta?.timestamp,
+        timestamp,
+        registeredAt,
         recipientAddress: tx?.recipientAddress,
         messageHex: payloadHex,
         messageText: decodedMessage,
