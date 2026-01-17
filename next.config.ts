@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  env: {
+    SYMBOL_SDK_NO_WASM: "true",
+  },
   webpack: (config, { isServer }) => {
     // Use alias to ignore the WASM module.
     config.resolve.alias = {
