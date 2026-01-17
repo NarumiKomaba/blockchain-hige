@@ -1,5 +1,3 @@
-import { NODE_URL } from './symbolConfig';
-
 let cachedSymbolSdk: typeof import('symbol-sdk/symbol') | null = null;
 
 async function loadSymbolSdk() {
