@@ -84,12 +84,13 @@ export async function announceTransaction(payload: string) {
     const contentType = response.headers.get('content-type') ?? '';
     const text = await response.text();
     if (text && contentType.includes('application/json')) {
-        return JSON.parse(text);
+        const data = JSON.parse(text);
+        return { ok: response.ok, status: response.status, data };
     }
     if (text) {
-        return { message: text };
+        return { ok: response.ok, status: response.status, message: text };
     }
-    return { status: response.status };
+    return { ok: response.ok, status: response.status };
 }
 
 /**
@@ -99,8 +100,12 @@ export async function announceTransaction(payload: string) {
 export async function getAccountProofs(address: string) {
     // If address has dashes, remove them? API handles both usually but clean is safer
     const cleanAddress = address.replace(/-/g, '');
-    const url = `${NODE_URL}/transactions/confirmed?address=${cleanAddress}&order=desc&type=16724`;
+    const url = `/api/transactions/confirmed?address=${cleanAddress}&order=desc&type=16724`;
     const res = await fetch(url);
+    if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || `Failed to fetch proofs (${res.status})`);
+    }
     const data = await res.json();
     return data.data;
 }
