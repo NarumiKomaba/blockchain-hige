@@ -91,6 +91,19 @@ export async function getAccountProofs(address: string) {
 }
 
 /**
+ * Fetch block timestamp and convert to JS Date.
+ * @param height - Block height.
+ */
+export async function getBlockTimestamp(height: string) {
+    const url = `${NODE_URL}/blocks/${height}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    const facade = new SymbolFacade('testnet');
+    const timestamp = BigInt(data.block.timestamp);
+    return facade.network.toDatetime(timestamp);
+}
+
+/**
  * Derives address from private key.
  * @param privateKey 
  */
