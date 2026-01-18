@@ -10,6 +10,11 @@ const execFileAsync = promisify(execFile);
 const NODE_URL =
   process.env.SYMBOL_NODE_URL || "https://sym-test-01.opening-line.jp:3001";
 
+type EpochAdjustmentResult = {
+  epochAdjustmentMs: number | null;
+  raw: unknown;
+};
+
 // hex文字列 -> UTF-8 文字列（Symbolのmessage.payloadは16進になることが多い）
 function hexToUtf8(hex: string): string {
   if (!hex) return "";
@@ -23,6 +28,45 @@ function hexToUtf8(hex: string): string {
     return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
   } catch {
     return new TextDecoder().decode(bytes);
+  }
+}
+
+function parseEpochAdjustmentMs(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value * 1000;
+  }
+  if (typeof value !== "string") return null;
+
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const match = trimmed.match(/^(\d+(?:\.\d+)?)(ms|s)?$/);
+  if (!match) return null;
+
+  const numeric = Number(match[1]);
+  if (!Number.isFinite(numeric)) return null;
+
+  const unit = match[2] ?? "s";
+  if (unit === "ms") return numeric;
+  return numeric * 1000;
+}
+
+async function getEpochAdjustmentMs(): Promise<EpochAdjustmentResult> {
+  try {
+    const res = await fetch(`${NODE_URL}/network/properties`, { cache: "no-store" });
+    const text = await res.text();
+    let body: any = text;
+    try {
+      body = JSON.parse(text);
+    } catch {}
+    if (!res.ok) {
+      return { epochAdjustmentMs: null, raw: body };
+    }
+
+    const epochAdjustment = body?.network?.epochAdjustment ?? body?.network?.epochAdjustmentSeconds;
+    return { epochAdjustmentMs: parseEpochAdjustmentMs(epochAdjustment), raw: epochAdjustment };
+  } catch (error) {
+    return { epochAdjustmentMs: null, raw: error };
   }
 }
 
@@ -66,6 +110,7 @@ export async function GET(req: Request) {
 
     const address = addressParam || (await getDefaultAddressFromEnvPK());
     const cleanAddress = address.replace(/-/g, "");
+    const epochInfo = await getEpochAdjustmentMs();
 
     // transfer tx type = 16724 (0x4154)
     const url = `${NODE_URL}/transactions/confirmed?address=${cleanAddress}&order=desc&type=16724&pageSize=50`;
@@ -94,10 +139,22 @@ export async function GET(req: Request) {
       const payloadHex = extractMessagePayloadHex(tx);
       const decodedMessage = hexToUtf8(payloadHex);
 
+      const rawTimestamp = meta?.timestamp;
+      const timestampOffsetMs =
+        typeof rawTimestamp === "string" || typeof rawTimestamp === "number" ? Number(rawTimestamp) : null;
+      const timestampMs =
+        typeof timestampOffsetMs === "number" &&
+        Number.isFinite(timestampOffsetMs) &&
+        epochInfo.epochAdjustmentMs !== null
+          ? epochInfo.epochAdjustmentMs + timestampOffsetMs
+          : null;
+
       return {
         hash: meta?.hash,
         height: meta?.height,
-        timestamp: meta?.timestamp,
+        timestamp: rawTimestamp,
+        timestampMs,
+        timestampIso: timestampMs ? new Date(timestampMs).toISOString() : null,
         recipientAddress: tx?.recipientAddress,
         messageHex: payloadHex || "",
         messageText: decodedMessage || "",
@@ -126,6 +183,8 @@ export async function GET(req: Request) {
       address,
       count: items.length,
       items,
+      epochAdjustmentMs: epochInfo.epochAdjustmentMs,
+      epochAdjustmentRaw: epochInfo.raw,
       debug: {
         top5: debugTop,
         hint:
