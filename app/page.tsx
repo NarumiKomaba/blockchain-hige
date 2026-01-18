@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getPhoto, putPhoto } from "@/lib/photoStore";
 
 // Simple SHA256 helper using Web Crypto API
@@ -19,6 +19,11 @@ function extractPhotoHash(messageText?: string): string | null {
   if (!messageText) return null;
   const m = messageText.match(/[0-9a-fA-F]{64}/);
   return m ? m[0].toLowerCase() : null;
+}
+
+function formatTimestamp(timestampMs?: number | null): string | null {
+  if (!timestampMs || !Number.isFinite(timestampMs)) return null;
+  return new Date(timestampMs).toLocaleString("ja-JP", { hour12: false });
 }
 
 type ProofApiOk = {
@@ -43,6 +48,8 @@ type ProofsApiOk = {
     hash: string; // tx hash
     height: string | number;
     timestamp?: string | number;
+    timestampMs?: number | null;
+    timestampIso?: string | null;
     recipientAddress?: string;
     messageHex?: string;
     messageText?: string; // chain message (contains photo hash)
@@ -109,7 +116,7 @@ export default function Home() {
     }
   };
 
-  const loadProofs = async () => {
+  const loadProofs = useCallback(async () => {
     try {
       const res = await fetch("/api/proofs", { cache: "no-store" });
       const json = (await res.json()) as ProofsApiOk | ProofApiNg;
@@ -143,7 +150,11 @@ export default function Home() {
     } catch (e: any) {
       setStatus("履歴取得エラー: " + (e?.message ?? String(e)));
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    void loadProofs();
+  }, [loadProofs]);
 
   const handleShave = async () => {
     if (!fileHash) {
@@ -262,6 +273,7 @@ export default function Home() {
             {proofs.map((tx, i) => {
               const photoHash = extractPhotoHash(tx.messageText);
               const localPhotoUrl = photoUrls[tx.hash];
+              const timestampLabel = formatTimestamp(tx.timestampMs);
 
               return (
                 <div key={tx.hash ?? i} className="bg-gray-800 p-4 rounded-lg border border-gray-700">
@@ -269,6 +281,9 @@ export default function Home() {
                     <div>
                       <div className="text-sm font-bold text-white">証明 #{proofs.length - i}</div>
                       <div className="text-xs text-gray-400">ブロック高: {String(tx.height ?? "")}</div>
+                      {timestampLabel && (
+                        <div className="text-xs text-gray-400">登録日時: {timestampLabel}</div>
+                      )}
                     </div>
 
                     <div className="text-right">
