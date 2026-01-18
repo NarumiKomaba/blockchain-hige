@@ -276,48 +276,41 @@ export default function Home() {
               const timestampLabel = formatTimestamp(tx.timestampMs);
 
               return (
-                <div key={tx.hash ?? i} className="bg-gray-800 p-4 rounded-lg border border-gray-700">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="text-sm font-bold text-white">証明 #{proofs.length - i}</div>
-                      <div className="text-xs text-gray-400">ブロック高: {String(tx.height ?? "")}</div>
-                      {timestampLabel && (
-                        <div className="text-xs text-gray-400">登録日時: {timestampLabel}</div>
+                <div
+                  key={tx.hash ?? i}
+                  className="bg-gray-800 p-4 rounded-lg border border-gray-700 flex flex-col gap-3 sm:flex-row sm:items-center"
+                >
+                  <div className="flex items-center gap-4 sm:flex-1">
+                    <div className="w-24 h-24 sm:w-28 sm:h-28 shrink-0">
+                      {photoHash && localPhotoUrl ? (
+                        <img
+                          src={localPhotoUrl}
+                          alt="saved photo"
+                          className="w-full h-full object-cover rounded-lg border border-gray-700"
+                        />
+                      ) : (
+                        <div className="w-full h-full rounded-lg border border-gray-700 bg-gray-900 flex items-center justify-center text-xs text-gray-500">
+                          画像なし
+                        </div>
                       )}
                     </div>
-
-                    <div className="text-right">
-                      <a
-                        href={`https://testnet.symbol.fyi/transactions/${tx.hash}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-xs text-blue-400 underline"
-                      >
-                        確認
-                      </a>
-                    </div>
-                  </div>
-
-                  {/* messageText（=写真ハッシュ） */}
-                  {tx.messageText && (
-                    <div className="mt-2 text-xs font-mono text-gray-400 break-all">
-                      message: {tx.messageText}
-                    </div>
-                  )}
-
-                  {/* local photo */}
-                  {photoHash && localPhotoUrl ? (
-                    <div className="mt-3">
-                      <img src={localPhotoUrl} alt="saved photo" className="w-full rounded-lg border border-gray-700" />
-                      <div className="mt-1 text-[11px] text-gray-500">
-                        ※この端末の IndexedDB に保存されている写真を表示（チェーンにはハッシュのみ）
+                    <div>
+                      <div className="text-sm font-bold text-white">
+                        証明 #{proofs.length - i}
+                        {timestampLabel && <span className="ml-2 text-xs text-gray-400">登録日時: {timestampLabel}</span>}
                       </div>
                     </div>
-                  ) : (
-                    <div className="mt-3 text-xs text-gray-500">
-                      この端末に写真が保存されていません（別端末 / 過去の証明 / DBに該当hash無しの可能性）。
-                    </div>
-                  )}
+                  </div>
+                  <div className="sm:text-right">
+                    <a
+                      href={`https://testnet.symbol.fyi/transactions/${tx.hash}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center justify-center text-xs text-blue-400 underline"
+                    >
+                      確認
+                    </a>
+                  </div>
                 </div>
               );
             })}
