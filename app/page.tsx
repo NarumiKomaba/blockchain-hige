@@ -11,6 +11,24 @@ async function sha256(file: File): Promise<string> {
   return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+// Symbol Epoch (approximate for Testnet/Mainnet adjustment if needed)
+// For now, assuming raw timestamp needs epoch adjustment.
+// If the node returns relative time, we need to add the epoch.
+// Symbol Mainnet Epoch: 1615853185000
+// Symbol Testnet Epoch (2022 reset): 1667250467000
+const SYMBOL_EPOCH = 1667250467000;
+
+function formatSymbolDate(timestamp?: string | number): string {
+  if (!timestamp) return "Unknown Date";
+  // timestamp is usually milliseconds from epoch
+  const ms = Number(timestamp);
+  // Simple check: if year is 1970, add epoch.
+  // 1 year in ms ~ 3e10. 
+  // If ms < 1.6e12 (approx 2020), it's likely relative.
+  const t = ms < 1600000000000 ? ms + SYMBOL_EPOCH : ms;
+  return new Date(t).toLocaleString("ja-JP");
+}
+
 /**
  * messageText から 64桁 hex を抜き出す
  * - 64hex が複数ある場合は最初の1つ
@@ -122,7 +140,7 @@ export default function Home() {
       const ok = json as ProofsApiOk;
       setAddress(ok.address);
       setProofs(ok.items || []);
-      setStatus("履歴を更新しました。");
+      // setStatus("履歴を更新しました。"); // Success message removed per user request
 
       // 既存の履歴写真URLを解放
       for (const url of Object.values(photoUrlsRef.current)) URL.revokeObjectURL(url);
@@ -173,7 +191,7 @@ export default function Home() {
       // ✅ 宛先（=記録先）を保存
       setAddress(ok.recipientAddress);
 
-      setStatus(`送信完了！ ${ok.announced?.message ?? ""}`);
+      // setStatus(`送信完了！ ${ok.announced?.message ?? ""}`); // Removed success message
 
       // confirmed 反映まで少し待ってから取得
       setTimeout(() => {
@@ -212,9 +230,15 @@ export default function Home() {
               />
               <label
                 htmlFor="file-upload"
-                className="cursor-pointer inline-flex items-center justify-center w-32 h-32 rounded-full bg-gray-700 hover:bg-gray-600 border-2 border-dashed border-gray-500 transition-all group-hover:border-blue-400"
+                className="cursor-pointer inline-flex items-center justify-center w-32 h-32 rounded-full bg-gray-700 hover:bg-gray-600 border-2 border-dashed border-gray-500 transition-all group-hover:border-blue-400 overflow-hidden relative"
               >
-                {fileHash ? <span className="text-4xl">📸</span> : <span className="text-gray-400 text-sm">タップして撮影</span>}
+                {previewUrl ? (
+                  <img src={previewUrl} alt="preview" className="w-full h-full object-cover" />
+                ) : fileHash ? (
+                  <span className="text-4xl">📸</span>
+                ) : (
+                  <span className="text-gray-400 text-sm">タップして撮影</span>
+                )}
               </label>
             </div>
 
@@ -224,21 +248,15 @@ export default function Home() {
               </div>
             )}
 
-            {/* 発行セクションのプレビュー表示 */}
-            {previewUrl && (
-              <div className="pt-2">
-                <img src={previewUrl} alt="preview" className="w-full rounded-lg border border-gray-700" />
-              </div>
-            )}
+            {/* Preview logic moved inside label */}
 
             <button
               onClick={handleShave}
               disabled={isUploading || !fileHash}
-              className={`w-full py-3 rounded-lg font-bold transition-all ${
-                isUploading || !fileHash
-                  ? "bg-gray-600 cursor-not-allowed"
-                  : "bg-gradient-to-r from-blue-600 to-purple-600 hover:scale-105 active:scale-95 text-white shadow-lg shadow-blue-500/30"
-              }`}
+              className={`w-full py-3 rounded-lg font-bold transition-all ${isUploading || !fileHash
+                ? "bg-gray-600 cursor-not-allowed"
+                : "bg-gradient-to-r from-blue-600 to-purple-600 hover:scale-105 active:scale-95 text-white shadow-lg shadow-blue-500/30"
+                }`}
             >
               {isUploading ? "証明中..." : "証明書を発行"}
             </button>
@@ -265,44 +283,50 @@ export default function Home() {
 
               return (
                 <div key={tx.hash ?? i} className="bg-gray-800 p-4 rounded-lg border border-gray-700">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="text-sm font-bold text-white">証明 #{proofs.length - i}</div>
-                      <div className="text-xs text-gray-400">ブロック高: {String(tx.height ?? "")}</div>
-                    </div>
-
-                    <div className="text-right">
+                  <div className="flex flex-col gap-2">
+                    {/* Header: Date + Link */}
+                    <div className="flex justify-between items-center border-b border-gray-700 pb-1 mb-2">
+                      <div className="text-sm font-bold text-white">
+                        {formatSymbolDate(tx.timestamp)}
+                      </div>
                       <a
                         href={`https://testnet.symbol.fyi/transactions/${tx.hash}`}
                         target="_blank"
                         rel="noreferrer"
-                        className="text-xs text-blue-400 underline"
+                        className="text-gray-400 hover:text-white transition-colors"
+                        title="Symbolブロックチェーンで確認"
                       >
-                        確認
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+                        </svg>
                       </a>
                     </div>
-                  </div>
 
-                  {/* messageText（=写真ハッシュ） */}
-                  {tx.messageText && (
-                    <div className="mt-2 text-xs font-mono text-gray-400 break-all">
-                      message: {tx.messageText}
-                    </div>
-                  )}
+                    <div className="flex gap-3">
+                      {/* Left: Thumbnail */}
+                      <div className="flex-shrink-0">
+                        {photoHash && localPhotoUrl ? (
+                          <img src={localPhotoUrl} alt="saved photo" className="w-16 h-16 rounded object-cover" />
+                        ) : (
+                          <div className="w-16 h-16 rounded bg-gray-700 flex items-center justify-center text-xs text-gray-500">
+                            No Img
+                          </div>
+                        )}
+                      </div>
 
-                  {/* local photo */}
-                  {photoHash && localPhotoUrl ? (
-                    <div className="mt-3">
-                      <img src={localPhotoUrl} alt="saved photo" className="w-full rounded-lg border border-gray-700" />
-                      <div className="mt-1 text-[11px] text-gray-500">
-                        ※この端末の IndexedDB に保存されている写真を表示（チェーンにはハッシュのみ）
+                      {/* Right: Info */}
+                      <div className="flex-grow flex flex-col justify-center min-w-0">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs text-gray-400">Hash:</span>
+                        </div>
+                        {/* messageText (Hash) */}
+                        <div className="text-xs font-mono text-gray-300 truncate bg-gray-900 p-1 rounded mb-2">
+                          {tx.messageText || "No content"}
+                        </div>
+
                       </div>
                     </div>
-                  ) : (
-                    <div className="mt-3 text-xs text-gray-500">
-                      この端末に写真が保存されていません（別端末 / 過去の証明 / DBに該当hash無しの可能性）。
-                    </div>
-                  )}
+                  </div>
                 </div>
               );
             })}
