@@ -2,10 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { getPhoto, putPhoto } from "@/lib/photoStore";
+import { CameraCapture } from "@/components/CameraCapture";
+import { VerifySection } from "@/components/VerifySection";
 
 // Simple SHA256 helper using Web Crypto API
-async function sha256(file: File): Promise<string> {
-  const buffer = await file.arrayBuffer();
+async function sha256(data: Blob): Promise<string> {
+  const buffer = await data.arrayBuffer();
   const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -99,31 +101,28 @@ export default function Home() {
     };
   }, []);
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleCapture = async (blob: Blob) => {
     try {
-      if (!e.target.files || !e.target.files[0]) return;
-
-      const file = e.target.files[0];
-
       // 1) SHA256
-      const hash = await sha256(file);
+      const hash = await sha256(blob);
       setFileHash(hash);
 
       // 2) IndexedDBへ保存（hashをキー）
       await putPhoto({
         hash,
         createdAt: Date.now(),
-        blob: file, // FileはBlobとして保存OK
+        blob,
       });
 
       // 3) プレビュー表示
       if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
-      const url = URL.createObjectURL(file);
+      const url = URL.createObjectURL(blob);
       setPreviewUrl(url);
 
       setStatus("ハッシュ化＆端末保存完了: " + hash.substring(0, 10) + "...");
-    } catch (e: any) {
-      setStatus("ファイル処理エラー: " + (e?.message ?? String(e)));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setStatus("撮影処理エラー: " + message);
     }
   };
 
@@ -208,9 +207,9 @@ export default function Home() {
     <div className="min-h-screen bg-gray-900 text-white p-6 font-sans">
       <header className="mb-8 text-center">
         <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-500">
-          Shave Proof
+          HIGE
         </h1>
-        <p className="text-gray-400">ブロックチェーンで刻む、毎日の身だしなみ</p>
+        <p className="text-gray-400">ブロックチェーンで刻む、毎日の身だしなみ証明</p>
       </header>
 
       <main className="max-w-md mx-auto space-y-8">
@@ -219,36 +218,16 @@ export default function Home() {
           <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-purple-500"></div>
 
           <div className="text-center space-y-4">
-            <div className="relative inline-block group">
-              <input
-                type="file"
-                accept="image/*"
-                capture="environment"
-                onChange={handleFileChange}
-                className="hidden"
-                id="file-upload"
-              />
-              <label
-                htmlFor="file-upload"
-                className="cursor-pointer inline-flex items-center justify-center w-32 h-32 rounded-full bg-gray-700 hover:bg-gray-600 border-2 border-dashed border-gray-500 transition-all group-hover:border-blue-400 overflow-hidden relative"
-              >
-                {previewUrl ? (
-                  <img src={previewUrl} alt="preview" className="w-full h-full object-cover" />
-                ) : fileHash ? (
-                  <span className="text-4xl">📸</span>
-                ) : (
-                  <span className="text-gray-400 text-sm">タップして撮影</span>
-                )}
-              </label>
-            </div>
+            <CameraCapture
+              onCapture={handleCapture}
+              previewUrl={previewUrl}
+            />
 
             {fileHash && (
               <div className="text-xs font-mono text-gray-400 break-all">
                 ハッシュ値: {fileHash}
               </div>
             )}
-
-            {/* Preview logic moved inside label */}
 
             <button
               onClick={handleShave}
@@ -332,6 +311,13 @@ export default function Home() {
             })}
           </div>
         </div>
+
+        {/* Verify & Tamper Demo Section */}
+        <VerifySection
+          proofs={proofs}
+          sha256={sha256}
+          formatDate={formatSymbolDate}
+        />
       </main>
     </div>
   );
