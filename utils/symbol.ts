@@ -1,8 +1,6 @@
 // utils/symbol.ts（サーバ専用：BIP32/bitcore を引かない）
 
-import { SymbolFacade } from "symbol-sdk/src/facade/SymbolFacade";
-import { KeyPair } from "symbol-sdk/src/CryptoTypes"; // KeyPair がここから取れる環境向け
-// ↑もしこの import がコケたら下の「代替import」を使う
+import { SymbolFacade, KeyPair } from "symbol-sdk/symbol";
 
 function hexToUint8(hex: string): Uint8Array {
   if (hex.length % 2 !== 0) throw new Error("Invalid hex string");

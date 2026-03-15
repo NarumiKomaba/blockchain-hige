@@ -75,6 +75,7 @@ export default function Home() {
   const [fileHash, setFileHash] = useState("");
   const [isUploading, setIsUploading] = useState(false);
   const [address, setAddress] = useState<string>("");
+  const [visibleCount, setVisibleCount] = useState(5);
 
   // 撮影直後のプレビュー用URL
   const [previewUrl, setPreviewUrl] = useState<string>("");
@@ -99,6 +100,12 @@ export default function Home() {
       if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
       for (const url of Object.values(photoUrlsRef.current)) URL.revokeObjectURL(url);
     };
+  }, []);
+
+  // 初期表示時に履歴を読み込む
+  useEffect(() => {
+    loadProofs();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleCapture = async (blob: Blob) => {
@@ -256,7 +263,7 @@ export default function Home() {
           <div className="space-y-3">
             {proofs.length === 0 && <div className="text-center text-gray-500 py-4">履歴がありません。</div>}
 
-            {proofs.map((tx, i) => {
+            {proofs.slice(0, visibleCount).map((tx, i) => {
               const photoHash = extractPhotoHash(tx.messageText);
               const localPhotoUrl = photoUrls[tx.hash];
 
@@ -310,6 +317,15 @@ export default function Home() {
               );
             })}
           </div>
+
+          {proofs.length > visibleCount && (
+            <button
+              onClick={() => setVisibleCount((c) => c + 5)}
+              className="w-full py-2 text-sm text-blue-400 hover:text-blue-300 border border-gray-700 rounded-lg hover:border-gray-600 transition-colors"
+            >
+              もっと見る（残り {proofs.length - visibleCount} 件）
+            </button>
+          )}
         </div>
 
         {/* Verify & Tamper Demo Section */}

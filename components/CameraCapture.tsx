@@ -27,6 +27,7 @@ export function CameraCapture({ onCapture, previewUrl }: CameraCaptureProps) {
   const [errorMessage, setErrorMessage] = useState("");
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
   const stopCamera = useCallback(() => {
@@ -110,27 +111,64 @@ export function CameraCapture({ onCapture, previewUrl }: CameraCaptureProps) {
     );
   };
 
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      onCapture(file);
+    }
+    // Reset so the same file can be re-selected
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
   const isActive = cameraState === "active";
 
   return (
     <div className="text-center space-y-4">
-      {/* Idle state: show tap-to-capture button */}
+      {/* Idle state: show preview + camera/upload buttons */}
       {cameraState === "idle" && (
-        <button
-          type="button"
-          onClick={startCamera}
-          className="relative inline-flex items-center justify-center w-32 h-32 rounded-full bg-gray-700 hover:bg-gray-600 border-2 border-dashed border-gray-500 transition-all hover:border-blue-400 overflow-hidden cursor-pointer"
-        >
-          {previewUrl ? (
-            <img
-              src={previewUrl}
-              alt="preview"
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            <span className="text-gray-400 text-sm">タップして撮影</span>
+        <div className="space-y-3">
+          {previewUrl && (
+            <div className="inline-flex items-center justify-center w-32 h-32 rounded-full overflow-hidden">
+              <img
+                src={previewUrl}
+                alt="preview"
+                className="w-full h-full object-cover"
+              />
+            </div>
           )}
-        </button>
+          <div className="flex justify-center gap-3">
+            <button
+              type="button"
+              onClick={startCamera}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 border border-gray-500 hover:border-blue-400 transition-all text-sm text-gray-300"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0z" />
+              </svg>
+              撮影
+            </button>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 border border-gray-500 hover:border-purple-400 transition-all text-sm text-gray-300"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+              </svg>
+              アップロード
+            </button>
+          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            onChange={handleFileUpload}
+            className="hidden"
+          />
+        </div>
       )}
 
       {/* Requesting state: loading */}

@@ -1,12 +1,11 @@
 // app/api/proof/route.ts
 import { NextResponse } from "next/server";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { createProofPayload } from "@/lib/symbolProof";
 
 export const runtime = "nodejs";
 
-const execFileAsync = promisify(execFile);
-const NODE_URL = process.env.SYMBOL_NODE_URL || "https://sym-test-01.opening-line.jp:3001";
+const NODE_URL =
+  process.env.SYMBOL_NODE_URL || "https://sym-test-01.opening-line.jp:3001";
 
 export async function POST(req: Request) {
   try {
@@ -21,27 +20,20 @@ export async function POST(req: Request) {
       );
     }
 
-    // scripts/proof.cjs を実行して payload を生成
-    const { stdout } = await execFileAsync(
-      process.execPath,
-      ["scripts/proof.cjs", messageContent, recipientAddress],
-      { env: { ...process.env } }
-    );
-
-    let proofResult: { recipientAddress: string; payload: string };
-    try {
-      proofResult = JSON.parse(stdout);
-    } catch {
-      throw new Error(`Invalid JSON from scripts/proof.cjs: ${stdout}`);
+    const privateKey = process.env.SYMBOL_PRIVATE_KEY;
+    if (!privateKey) {
+      return NextResponse.json(
+        { ok: false, error: "SYMBOL_PRIVATE_KEY is not configured" },
+        { status: 500 }
+      );
     }
 
-    const { payload, recipientAddress: finalRecipientAddress } = proofResult;
+    const { payload, recipientAddress: finalRecipientAddress } =
+      createProofPayload(privateKey, messageContent, recipientAddress || undefined);
 
-    // Symbol ノードへアナウンス（詳細エラーも返す）
+    // Symbol ノードへアナウンス
     try {
       const url = `${NODE_URL}/transactions`;
-      console.log("[/api/proof] announce url =", url);
-
       const res = await fetch(url, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -49,8 +41,7 @@ export async function POST(req: Request) {
       });
 
       const text = await res.text();
-
-      let bodyParsed: any = text;
+      let bodyParsed: unknown = text;
       try {
         bodyParsed = JSON.parse(text);
       } catch {}
@@ -73,25 +64,22 @@ export async function POST(req: Request) {
         recipientAddress: finalRecipientAddress,
         announced: bodyParsed,
       });
-    } catch (e: any) {
+    } catch (e: unknown) {
+      const error = e instanceof Error ? e : new Error(String(e));
       return NextResponse.json(
         {
           ok: false,
           error: "fetch failed",
-          message: e?.message,
-          name: e?.name,
-          cause: e?.cause
-            ? { message: e.cause.message, code: e.cause.code }
-            : undefined,
+          message: error.message,
           nodeUrl: NODE_URL,
         },
         { status: 500 }
       );
     }
-  } catch (e: any) {
-    console.error("[/api/proof] ERROR:", e);
+  } catch (e: unknown) {
+    const error = e instanceof Error ? e : new Error(String(e));
     return NextResponse.json(
-      { ok: false, error: e?.message ?? String(e) ?? "Unknown error" },
+      { ok: false, error: error.message },
       { status: 500 }
     );
   }

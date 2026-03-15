@@ -1,16 +1,12 @@
 // app/api/proofs/route.ts
 import { NextResponse } from "next/server";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { getAddressFromPrivateKey } from "@/lib/symbolProof";
 
 export const runtime = "nodejs";
-
-const execFileAsync = promisify(execFile);
 
 const NODE_URL =
   process.env.SYMBOL_NODE_URL || "https://sym-test-01.opening-line.jp:3001";
 
-// hex文字列 -> UTF-8 文字列（Symbolのmessage.payloadは16進になることが多い）
 function hexToUtf8(hex: string): string {
   if (!hex) return "";
   const clean = hex.startsWith("0x") ? hex.slice(2) : hex;
@@ -26,36 +22,18 @@ function hexToUtf8(hex: string): string {
   }
 }
 
-async function getDefaultAddressFromEnvPK(): Promise<string> {
-  // scripts/proof.cjs は payload 生成のついでに recipientAddress を返せるので、それを流用
-  // messageContent はダミーでOK（payloadは使わない）
-  const { stdout } = await execFileAsync(process.execPath, ["scripts/proof.cjs", "dummy"], {
-    env: { ...process.env },
-  });
-  const json = JSON.parse(stdout);
-  return json.recipientAddress as string;
-}
-
-/**
- * tx.message の候補をできるだけ拾って messageHex/messageText を埋める
- * ノードやSDKのバージョン差で形が違うケースに備える
- */
-function extractMessagePayloadHex(tx: any): string {
+function extractMessagePayloadHex(tx: Record<string, unknown>): string {
   if (!tx) return "";
 
-  // 最も典型：tx.message.payload
-  const a = tx?.message?.payload;
-  if (typeof a === "string" && a.length > 0) return a;
+  const msg = tx?.message as Record<string, unknown> | string | undefined;
 
-  // 稀：tx.message が配列（アグリゲート等）
-  const b = tx?.message?.[0]?.payload;
-  if (typeof b === "string" && b.length > 0) return b;
+  if (typeof msg === "object" && msg !== null) {
+    const payload = (msg as Record<string, unknown>).payload;
+    if (typeof payload === "string" && payload.length > 0) return payload;
+  }
 
-  // 稀：tx.message が文字列で直接入る
-  const c = tx?.message;
-  if (typeof c === "string" && c.length > 0) return c;
+  if (typeof msg === "string" && msg.length > 0) return msg;
 
-  // それ以外は空
   return "";
 }
 
@@ -64,16 +42,24 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const addressParam = (searchParams.get("address") || "").trim();
 
-    const address = addressParam || (await getDefaultAddressFromEnvPK());
+    let address = addressParam;
+    if (!address) {
+      const privateKey = process.env.SYMBOL_PRIVATE_KEY;
+      if (!privateKey) {
+        return NextResponse.json(
+          { ok: false, error: "SYMBOL_PRIVATE_KEY is not configured and no address provided" },
+          { status: 500 }
+        );
+      }
+      address = getAddressFromPrivateKey(privateKey);
+    }
     const cleanAddress = address.replace(/-/g, "");
 
-    // transfer tx type = 16724 (0x4154)
     const url = `${NODE_URL}/transactions/confirmed?address=${cleanAddress}&order=desc&type=16724&pageSize=50`;
-
     const res = await fetch(url, { cache: "no-store" });
 
     const text = await res.text();
-    let body: any = text;
+    let body: Record<string, unknown> = {};
     try {
       body = JSON.parse(text);
     } catch {}
@@ -85,39 +71,27 @@ export async function GET(req: Request) {
       );
     }
 
-    const data = body?.data || [];
-    const items = data.map((item: any) => {
-      const tx = item?.transaction || {};
-      const meta = item?.meta || {};
+    const data = (body?.data || []) as Record<string, unknown>[];
+    const SHA256_REGEX = /^[0-9a-f]{64}$/i;
 
-      // message payload をなるべく拾う
-      const payloadHex = extractMessagePayloadHex(tx);
-      const decodedMessage = hexToUtf8(payloadHex);
+    const items = data
+      .map((item) => {
+        const tx = (item?.transaction || {}) as Record<string, unknown>;
+        const meta = (item?.meta || {}) as Record<string, unknown>;
 
-      return {
-        hash: meta?.hash,
-        height: meta?.height,
-        timestamp: meta?.timestamp,
-        recipientAddress: tx?.recipientAddress,
-        messageHex: payloadHex || "",
-        messageText: decodedMessage || "",
-      };
-    });
+        const payloadHex = extractMessagePayloadHex(tx);
+        const decodedMessage = hexToUtf8(payloadHex);
 
-    // ✅ デバッグ用：messageが空のときに “tx.message の生データ” を少しだけ返す
-    // 返しすぎると重いので、先頭5件だけ・必要最小限
-    const debugTop = (data || []).slice(0, 5).map((item: any) => {
-      const tx = item?.transaction || {};
-      const meta = item?.meta || {};
-      return {
-        hash: meta?.hash,
-        height: meta?.height,
-        // tx.message の形がどうなってるかを見る
-        messageRaw: tx?.message ?? null,
-        // 取得関数が拾ったpayload
-        payloadPicked: extractMessagePayloadHex(tx),
-      };
-    });
+        return {
+          hash: meta?.hash,
+          height: meta?.height,
+          timestamp: meta?.timestamp,
+          recipientAddress: tx?.recipientAddress,
+          messageHex: payloadHex || "",
+          messageText: decodedMessage || "",
+        };
+      })
+      .filter((item) => SHA256_REGEX.test(item.messageText));
 
     return NextResponse.json({
       ok: true,
@@ -126,16 +100,11 @@ export async function GET(req: Request) {
       address,
       count: items.length,
       items,
-      debug: {
-        top5: debugTop,
-        hint:
-          "messageHex/messageText が空の場合は debug.top5[].messageRaw を見て、messageの構造が想定と違っていないか確認してください。",
-      },
     });
-  } catch (e: any) {
-    console.error("[/api/proofs] ERROR:", e);
+  } catch (e: unknown) {
+    const error = e instanceof Error ? e : new Error(String(e));
     return NextResponse.json(
-      { ok: false, error: e?.message ?? String(e) ?? "Unknown error" },
+      { ok: false, error: error.message },
       { status: 500 }
     );
   }
