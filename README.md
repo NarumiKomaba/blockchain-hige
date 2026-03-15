@@ -2,9 +2,9 @@
 
 ブロックチェーンで刻む、毎日の身だしなみ証明 dApp
 
-**Live Demo**: https://blockchain-hige.vercel.app
+**デモサイト**: https://blockchain-hige.vercel.app
 
-## Overview
+## 概要
 
 HIGE は、毎日の身だしなみ（髭剃り等）の写真を撮影・アップロードし、その SHA256 ハッシュを Symbol Testnet ブロックチェーンに記録することで、「いつ・誰が・何を」証明したかを改ざん不可能な形で残す dApp です。
 
@@ -12,116 +12,117 @@ HIGE は、毎日の身だしなみ（髭剃り等）の写真を撮影・アッ
 - 記録はブロックエクスプローラーで誰でも第三者検証可能
 - 秘密鍵はサーバー側の環境変数でのみ保持し、クライアントには送信しない
 
-## Tech Stack
+## 技術スタック
 
-| Layer | Technology |
+| レイヤー | 技術 |
 |:---|:---|
-| Blockchain | Symbol (NEM) Testnet |
-| Frontend | Next.js 16, React 19, Tailwind CSS 4 |
-| Crypto | Web Crypto API (SHA-256), Symbol SDK v3 |
-| Local Storage | IndexedDB (端末内写真保存) |
-| Hosting | Vercel |
+| ブロックチェーン | Symbol (NEM) Testnet |
+| フロントエンド | Next.js 16, React 19, Tailwind CSS 4 |
+| 暗号処理 | Web Crypto API (SHA-256), Symbol SDK v3 |
+| 端末内保存 | IndexedDB (写真のローカル保存) |
+| ホスティング | Vercel |
 
-## Architecture
+## アーキテクチャ
 
 ```mermaid
 sequenceDiagram
-    participant User as User
-    participant App as Browser (Next.js)
-    participant API as API Route (Server)
-    participant Node as Symbol Node
-    participant Chain as Blockchain
+    participant User as ユーザー
+    participant App as ブラウザ (Next.js)
+    participant API as APIルート (サーバー)
+    participant Node as Symbolノード
+    participant Chain as ブロックチェーン
 
-    User->>App: Take photo / Upload image
-    App->>App: SHA-256 hash (client-side)
+    User->>App: 写真を撮影 / アップロード
+    App->>App: SHA-256ハッシュ計算 (クライアント側)
     App->>API: POST /api/proof {hash}
-    API->>API: Sign transaction with private key
-    API->>Node: Announce signed transaction
-    Node->>Chain: Validate & add to block
-    Chain-->>Node: Confirmed
+    API->>API: 秘密鍵でトランザクションに署名
+    API->>Node: 署名済みトランザクションを送信
+    Node->>Chain: 検証・ブロック生成・記録
+    Chain-->>Node: 確定 (Confirmed)
     App->>API: GET /api/proofs
-    API->>Node: Query transaction history
-    Node-->>API: Transaction list
-    API-->>App: Filtered proof history
-    App->>User: Display proof records
+    API->>Node: トランザクション履歴を問い合わせ
+    Node-->>API: トランザクションリスト返却
+    API-->>App: フィルタ済みの証明履歴
+    App->>User: 証明履歴を表示
 ```
 
-## Getting Started
+## セットアップ
 
-### Prerequisites
+### 必要なもの
 
 - Node.js 20+
-- Symbol Testnet account with XYM (for transaction fees)
+- Symbol Testnet アカウント（トランザクション手数料用の XYM が必要）
 
-### Setup
+### インストール
 
 ```bash
-# Install dependencies
+# 依存パッケージのインストール
 npm install
 
-# Create .env.local
+# 環境変数ファイルの作成
 cp .env.local.example .env.local
-# Edit .env.local with your Symbol Testnet private key
+# .env.local を編集し、Symbol Testnet の秘密鍵を設定
 
-# Start development server
+# 開発サーバーの起動
 npm run dev
 ```
 
-### Environment Variables
+ブラウザで http://localhost:3000 を開いてください。
 
-| Variable | Description | Required |
+### 環境変数
+
+| 変数名 | 説明 | 必須 |
 |:---|:---|:---|
-| `SYMBOL_PRIVATE_KEY` | Symbol Testnet private key (64-char hex) | Yes |
-| `SYMBOL_NODE_URL` | Symbol node endpoint | No (default: `https://sym-test-01.opening-line.jp:3001`) |
+| `SYMBOL_PRIVATE_KEY` | Symbol Testnet の秘密鍵（64文字の16進数） | はい |
+| `SYMBOL_NODE_URL` | Symbol ノードのエンドポイント | いいえ（デフォルト: `https://sym-test-01.opening-line.jp:3001`） |
 
-### Build
+### ビルド
 
 ```bash
 npm run build   # next build --webpack
 npm run start
 ```
 
-## How It Works
+## 使い方
 
-1. **Capture**: Take a photo with your camera or upload an image
-2. **Hash**: The app computes the SHA-256 hash of the image client-side
-3. **Record**: The hash is sent to the API, which signs a TransferTransaction and announces it to the Symbol network
-4. **Verify**: The proof appears in the history list with a link to the block explorer for independent verification
+1. **撮影 / アップロード**: カメラで写真を撮影するか、画像ファイルをアップロード
+2. **ハッシュ化**: アプリがクライアント側で画像の SHA-256 ハッシュを計算
+3. **記録**: ハッシュが API に送信され、サーバー側で TransferTransaction に署名・Symbol ネットワークにアナウンス
+4. **検証**: 証明履歴に記録が表示され、ブロックエクスプローラーへのリンクから誰でも独立して検証可能
 
-### Transaction Structure
+### トランザクションの構造
 
-| Field | Value | Purpose |
+| 項目 | 値 | 意味 |
 |:---|:---|:---|
-| Signer | Server account | Who submitted the proof |
-| Recipient | Self-transfer | Keep in transaction history |
-| Message | SHA-256 hash of photo | Digital fingerprint of evidence |
-| Fee | Minimal XYM | Network fee |
-| Timestamp | Block time | When the proof was anchored |
+| 送信者 (Signer) | サーバーアカウント | 誰が証明を提出したか |
+| 受信者 (Recipient) | 自分宛て | トランザクション履歴に残すため |
+| メッセージ (Message) | 写真の SHA-256 ハッシュ | 証拠のデジタル指紋 |
+| 手数料 (Fee) | 最小限の XYM | ネットワーク手数料 |
+| タイムスタンプ | ブロック生成時刻 | いつ証明が刻まれたか |
 
-## Project Structure
+## プロジェクト構成
 
 ```
 app/
-  layout.tsx          # Root layout with metadata
-  page.tsx            # Main page (client component)
+  layout.tsx          # ルートレイアウト・メタデータ
+  page.tsx            # メインページ (クライアントコンポーネント)
   api/
-    proof/route.ts    # POST: Create & announce proof transaction
-    proofs/route.ts   # GET: Fetch proof history from blockchain
+    proof/route.ts    # POST: 証明トランザクションの作成・送信
+    proofs/route.ts   # GET: ブロックチェーンから証明履歴を取得
 components/
-  CameraCapture.tsx   # Camera capture & file upload component
-  VerifySection.tsx   # Verification & tamper demo section
+  CameraCapture.tsx   # カメラ撮影・ファイルアップロードコンポーネント
+  VerifySection.tsx   # 検証・改ざんデモセクション
 lib/
-  symbolProof.ts      # Symbol SDK wrapper (server-side)
-  photoStore.ts       # IndexedDB photo storage
+  symbolProof.ts      # Symbol SDK ラッパー (サーバーサイド)
+  photoStore.ts       # IndexedDB 写真ストレージ
 ```
 
-## Security
+## セキュリティ
 
-- Private key is stored only in server-side environment variables
-- Client never handles or sees the private key
-- All hashing is done client-side using Web Crypto API
-- Proofs are independently verifiable on the public blockchain
+- 秘密鍵はサーバー側の環境変数にのみ保持し、クライアントには一切送信しない
+- ハッシュ計算はすべてクライアント側の Web Crypto API で実行
+- 記録された証明はパブリックブロックチェーン上で誰でも独立して検証可能
 
-## License
+## ライセンス
 
 MIT
