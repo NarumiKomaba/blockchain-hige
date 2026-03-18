@@ -39,12 +39,23 @@ sequenceDiagram
     API->>Node: 署名済みトランザクションを送信
     Node->>Chain: 検証・ブロック生成・記録
     Chain-->>Node: 確定 (Confirmed)
+```
+```mermaid
+sequenceDiagram
+    participant User as ユーザー
+    participant App as ブラウザ (Next.js)
+    participant API as APIルート (サーバー)
+    participant Node as Symbolノード
+    participant Chain as ブロックチェーン
+
+    User->>App: 写真を撮影 / アップロード
     App->>API: GET /api/proofs
     API->>Node: トランザクション履歴を問い合わせ
     Node-->>API: トランザクションリスト返却
     API-->>App: フィルタ済みの証明履歴
     App->>User: 証明履歴を表示
 ```
+
 
 ## セットアップ
 
