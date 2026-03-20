@@ -3,6 +3,7 @@
 ブロックチェーンで刻む、毎日の身だしなみ証明 dApp
 
 **デモサイト**: https://blockchain-hige.vercel.app
+
 **動画デモ**: https://www.youtube.com/shorts/I_izoyQNiq8
 
 ## 概要
