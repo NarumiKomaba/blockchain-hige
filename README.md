@@ -3,6 +3,7 @@
 ブロックチェーンで刻む、毎日の身だしなみ証明 dApp
 
 **デモサイト**: https://blockchain-hige.vercel.app
+**動画デモ**: https://www.youtube.com/shorts/I_izoyQNiq8
 
 ## 概要
 
@@ -11,9 +12,6 @@ HIGE は、毎日の身だしなみ（髭剃り等）の写真を撮影・アッ
 - 自前のデータベース・バックエンドサーバーは不要
 - 記録はブロックエクスプローラーで誰でも第三者検証可能
 - 秘密鍵はサーバー側の環境変数でのみ保持し、クライアントには送信しない
-
-### 動画デモ
-https://www.youtube.com/shorts/I_izoyQNiq8
 
 ## 技術スタック
 
