@@ -25,7 +25,10 @@ HIGE は、毎日の身だしなみ（髭剃り等）の写真を撮影・アッ
 | ホスティング | Vercel |
 
 ## アーキテクチャ
-### 証拠画像登録
+### システム構成図
+
+### シーケンス図
+#### 証拠画像登録
 ```mermaid
 sequenceDiagram
     participant User as ユーザー
@@ -42,7 +45,7 @@ sequenceDiagram
     Node->>Chain: 検証・ブロック生成・記録
     Chain-->>Node: 確定 (Confirmed)
 ```
-### 証拠画像照合
+#### 証拠画像照合
 ```mermaid
 sequenceDiagram
     participant User as ユーザー
