@@ -26,6 +26,7 @@ HIGE は、毎日の身だしなみ（髭剃り等）の写真を撮影・アッ
 
 ## アーキテクチャ
 ### システム構成図
+<img width="4724" height="2756" alt="image" src="https://github.com/user-attachments/assets/d97e7826-16cb-4c6c-8856-aea287d5b1c7" />
 
 ### シーケンス図
 #### 証拠画像登録
